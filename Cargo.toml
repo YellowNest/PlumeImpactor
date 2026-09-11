@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "apps/plumeimpactor",
     "apps/plumesign",
+    "3rdparty/omnisette",
     "crates/plume_core",
     "crates/plume_gestalt", 
     "crates/plume_store",
@@ -43,6 +44,9 @@ log = "0.4"
 thiserror = "2.0"
 # Utils
 uuid = "1.18"
+base64 = "0.22"
+rand = "0.9"
+sha2 = "0.10"
 futures = { version = "0.3", default-features = false, features = ["std"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde"] }
 serde = { version = "1", features = ["derive"] }

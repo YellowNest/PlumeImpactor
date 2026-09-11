@@ -80,6 +80,7 @@ pub fn client() -> Result<reqwest::Client, Error> {
         // .danger_accept_invalid_certs(true)
         .http1_title_case_headers()
         .connection_verbose(true)
+        .pool_max_idle_per_host(0)
         .build()?;
 
     Ok(client)
