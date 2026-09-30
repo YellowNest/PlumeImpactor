@@ -4,6 +4,7 @@ members = [
     "apps/plumeimpactor",
     "apps/plumesign",
     "3rdparty/omnisette",
+    "3rdparty/decompress",
     "crates/plume_core",
     "crates/plume_gestalt", 
     "crates/plume_store",
