@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::Write;
+
+use chrono::Local;
+
 use crate::refresh::spawn_refresh_daemon;
 
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -20,7 +24,21 @@ pub const APP_NAME: &str = "Impactor";
 pub const APP_NAME_VERSIONED: &str = concat!("Impactor", " - Version ", env!("CARGO_PKG_VERSION"));
 
 fn main() -> iced::Result {
-    env_logger::init();
+    // Third-party crates (e.g. apple-codesign) log the certificate CN
+    // containing the Apple ID email in cleartext; sanitize it here.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format(|buf, record| {
+            let sanitized = plume_utils::sanitize_emails_in_text(&record.args().to_string());
+            writeln!(
+                buf,
+                "[{} {:<5} {}] {}",
+                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.module_path().unwrap_or("<unknown>"),
+                sanitized
+            )
+        })
+        .init();
 
     rustls::crypto::ring::default_provider()
         .install_default()

@@ -3,6 +3,7 @@ mod cgbi;
 mod device;
 mod options;
 mod package;
+mod redact;
 mod signer;
 mod tweak;
 
@@ -20,6 +21,7 @@ pub use options::{
     SignerOptions,     // Main
 };
 pub use package::Package; // Package helper
+pub use redact::{mask_email, sanitize_emails_in_text}; // Log desensitization
 pub use signer::Signer; // Signer
 pub use tweak::Tweak; // Tweak helper
 

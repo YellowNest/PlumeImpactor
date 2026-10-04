@@ -11,6 +11,7 @@ use plume_core::{
     developer::{DeveloperSession, qh::devices::DeviceType},
 };
 use plume_store::AccountStore;
+use plume_utils::mask_email;
 
 use crate::get_data_path;
 
@@ -164,23 +165,6 @@ pub async fn execute(args: AccountArgs) -> Result<()> {
 
 pub fn get_settings_path() -> PathBuf {
     get_data_path().join("accounts.json")
-}
-
-fn mask_email(email: &str) -> String {
-    if let Some(at_pos) = email.find('@') {
-        if at_pos > 0 {
-            let keep_chars = at_pos.min(3); // 保留前1-3个字符
-            let prefix = &email[0..keep_chars];
-            let stars_count = at_pos - keep_chars;
-            let stars = "*".repeat(stars_count);
-            let domain = &email[at_pos..];
-            format!("{}{}{}", prefix, stars, domain)
-        } else {
-            email.to_string()
-        }
-    } else {
-        email.to_string()
-    }
 }
 
 pub async fn get_authenticated_account(username: Option<String>) -> Result<DeveloperSession> {

@@ -14,13 +14,16 @@ use commands::{Cli, Commands};
 async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format(|buf, record| {
+            // Third-party crates (e.g. apple-codesign) log the certificate CN
+            // containing the Apple ID email in cleartext; sanitize it here.
+            let sanitized = plume_utils::sanitize_emails_in_text(&record.args().to_string());
             writeln!(
                 buf,
                 "[{} {:<5} {}] {}",
                 Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 record.module_path().unwrap_or("<unknown>"),
-                record.args()
+                sanitized
             )
         })
         .init();
