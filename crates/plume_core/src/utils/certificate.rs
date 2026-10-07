@@ -702,7 +702,6 @@ impl CertificateIdentity {
     }
 }
 
-
 #[cfg(test)]
 mod issue_195_pkcs12_tests {
     use super::*;
@@ -801,10 +800,9 @@ mod issue_195_pkcs12_tests {
 
         let keystore = p12_keystore::KeyStore::from_pkcs12(&p12, "ignored").unwrap();
         assert!(
-            !keystore.entries().any(|(_, entry)| matches!(
-                entry,
-                p12_keystore::KeyStoreEntry::PrivateKeyChain(_)
-            )),
+            !keystore
+                .entries()
+                .any(|(_, entry)| matches!(entry, p12_keystore::KeyStoreEntry::PrivateKeyChain(_))),
             "fixture must reproduce p12-keystore dropping SideStore's unlinked keyBag"
         );
 
@@ -832,6 +830,5 @@ mod issue_195_pkcs12_tests {
             err.to_string().contains("No private key found in P12 file"),
             "unexpected error: {err}"
         );
-
     }
 }
