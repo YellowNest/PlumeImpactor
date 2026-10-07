@@ -24,8 +24,9 @@ pub enum Error {
     #[error("Certificate error: {0}")]
     Certificate(String),
     #[error(
-        "The certificate limit of this account is reached and revoking a certificate was not \
-         authorized. Ask the user which certificate to revoke, then retry with that authorization."
+        "[certificate_reset_required] The certificate limit of this account is reached and \
+         revoking a certificate was not authorized. Ask the user which certificate to revoke, \
+         then retry with that authorization."
     )]
     CertificateResetRequired(Vec<Cert>),
     #[error("Developer API error {result_code} (HTTP {http_code:?}): {message} [URL: {url}]")]
