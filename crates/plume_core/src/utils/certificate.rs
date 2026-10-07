@@ -733,7 +733,7 @@ mod issue_195_pkcs12_tests {
         let any = AnyRef::from_der(der).unwrap();
 
         ContextSpecificRef {
-            tag_number: TagNumber(0),
+            tag_number: TagNumber::new(0),
             tag_mode: TagMode::Explicit,
             value: &any,
         }
