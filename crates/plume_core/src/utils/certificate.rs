@@ -708,8 +708,8 @@ mod issue_195_pkcs12_tests {
 
     use cms::content_info::ContentInfo;
     use der::{
-        Any, AnyRef, Decode, Encode, TagMode, TagNumber,
-        asn1::{ContextSpecificRef, ObjectIdentifier, OctetString},
+        Any, Decode, Encode,
+        asn1::{ObjectIdentifier, OctetString},
     };
     use pkcs12::{
         authenticated_safe::AuthenticatedSafe,
@@ -729,18 +729,6 @@ mod issue_195_pkcs12_tests {
         }
     }
 
-    fn explicit_zero(der: &[u8]) -> Vec<u8> {
-        let any = AnyRef::from_der(der).unwrap();
-
-        ContextSpecificRef {
-            tag_number: TagNumber::new(0),
-            tag_mode: TagMode::Explicit,
-            value: &any,
-        }
-        .to_der()
-        .unwrap()
-    }
-
     fn sidestore_style_p12(key: &RsaPrivateKey) -> Vec<u8> {
         let key_bag_oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.1");
         let cert_bag_oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.3");
@@ -749,7 +737,7 @@ mod issue_195_pkcs12_tests {
         let key_der = key.to_pkcs8_der().unwrap().as_bytes().to_vec();
         let key_bag = SafeBag {
             bag_id: key_bag_oid,
-            bag_value: explicit_zero(&key_der),
+            bag_value: key_der.clone(),
             bag_attributes: None,
         };
         let key_safe: SafeContents = vec![key_bag];
@@ -774,7 +762,7 @@ mod issue_195_pkcs12_tests {
 
         let cert_bag = SafeBag {
             bag_id: cert_bag_oid,
-            bag_value: explicit_zero(&cert_bag_value),
+            bag_value: cert_bag_value,
             bag_attributes: None,
         };
         let cert_safe: SafeContents = vec![cert_bag];
