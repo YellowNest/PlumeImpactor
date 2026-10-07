@@ -86,7 +86,7 @@ impl CertificateIdentity {
             let priv_key = RsaPrivateKey::from_pkcs8_pem(&key_string)?;
 
             if let Some(certificate) = identity
-                .find_certificate(certs.clone(), &priv_key, &machine_name)
+                .find_certificate(certs.clone(), &priv_key)
                 .await?
             {
                 let cert_pem = encode_string(
@@ -247,28 +247,41 @@ impl CertificateIdentity {
 }
 
 impl CertificateIdentity {
+    /// Finds the certificate on the developer portal that belongs to `priv_key`.
+    ///
+    /// A certificate belongs to this key when its public key matches, which is
+    /// what Apple's signing already proves. The machine name registered by the
+    /// tool that created the certificate (AltStore, SideStore, iLoader, ...) is
+    /// deliberately ignored: private ownership of the key is the only real
+    /// credential, so ignoring it lets one certificate be shared across tools.
     async fn find_certificate(
         &mut self,
         certs: Vec<Cert>,
         priv_key: &RsaPrivateKey,
-        machine_name: &str,
     ) -> Result<Option<Cert>, Error> {
         let pub_key_der_obj = priv_key.to_public_key().to_pkcs1_der()?.as_bytes().to_vec();
 
         for cert in certs {
-            if cert.machine_name.as_deref() == Some(machine_name) {
-                if let Some(cert_content) = &cert.cert_content {
-                    let parsed_cert = X509Certificate::from_der(&cert_content)?;
-                    if pub_key_der_obj == parsed_cert.public_key_data().as_ref() {
-                        // We need to save the machine_id for our P12
-                        if let Some(ref machine_id) = cert.machine_id {
-                            self.set_machine_id(machine_id.clone());
-                        }
-
-                        self.set_serial_number(cert.serial_number.clone());
-
-                        return Ok(Some(cert));
+            if let Some(cert_content) = &cert.cert_content {
+                // Skip entries we cannot parse instead of failing the whole
+                // lookup: every certificate is inspected now, not just the ones
+                // matching a name.
+                let parsed_cert = match X509Certificate::from_der(cert_content) {
+                    Ok(parsed_cert) => parsed_cert,
+                    Err(e) => {
+                        log::debug!("Ignoring certificate {}: {}", cert.serial_number, e);
+                        continue;
                     }
+                };
+                if pub_key_der_obj == parsed_cert.public_key_data().as_ref() {
+                    // We need to save the machine_id for our P12
+                    if let Some(ref machine_id) = cert.machine_id {
+                        self.set_machine_id(machine_id.clone());
+                    }
+
+                    self.set_serial_number(cert.serial_number.clone());
+
+                    return Ok(Some(cert));
                 }
             }
         }
@@ -396,11 +409,9 @@ impl CertificateIdentity {
 
     pub async fn find_active_certificate(
         config_path: PathBuf,
-        machine_name: Option<String>,
         team_id: &String,
         certs: &[Cert],
     ) -> Option<CertificateIdentity> {
-        let machine_name = machine_name.unwrap_or_else(|| MACHINE_NAME.to_string());
         let key_path = Self::key_dir(config_path, &team_id).ok()?.join("key.pem");
 
         if key_path.exists() {
@@ -416,10 +427,7 @@ impl CertificateIdentity {
                 new: false,
             };
 
-            if let Some(_found_cert) = cert
-                .find_certificate(certs.to_vec(), &priv_key, &machine_name)
-                .await
-                .ok()?
+            if let Some(_found_cert) = cert.find_certificate(certs.to_vec(), &priv_key).await.ok()?
             {
                 return Some(cert);
             }
@@ -431,11 +439,9 @@ impl CertificateIdentity {
     pub async fn export_pkcs12(
         session: &DeveloperSession,
         config_path: PathBuf,
-        machine_name: Option<String>,
         team_id: &String,
         password: &str,
     ) -> Result<Vec<u8>, Error> {
-        let machine_name = machine_name.unwrap_or_else(|| MACHINE_NAME.to_string());
         let key_path = Self::key_dir(config_path, team_id)?.join("key.pem");
 
         let certs = session.qh_list_certs(team_id).await?.certificates;
@@ -453,7 +459,7 @@ impl CertificateIdentity {
                 new: false,
             };
             if let Some(cert) = cert
-                .find_certificate(certs.clone(), &priv_key, &machine_name)
+                .find_certificate(certs.clone(), &priv_key)
                 .await?
             {
                 let cert_pem = encode_string(
@@ -513,12 +519,10 @@ impl CertificateIdentity {
     pub async fn import_pkcs12(
         session: &DeveloperSession,
         config_path: PathBuf,
-        machine_name: Option<String>,
         team_id: &String,
         p12_data: &[u8],
         password: &str,
     ) -> Result<(), Error> {
-        let machine_name = machine_name.unwrap_or_else(|| MACHINE_NAME.to_string());
         // Parse P12 using p12_keystore
         let keystore = p12_keystore::KeyStore::from_pkcs12(p12_data, password)
             .map_err(|e| Error::Certificate(format!("Failed to parse P12: {:?}", e)))?;
@@ -546,10 +550,16 @@ impl CertificateIdentity {
             .to_vec();
         for cert in certificates {
             if let Some(cert_content) = &cert.cert_content {
-                let parsed_cert = X509Certificate::from_der(cert_content)?;
-                if cert.machine_name.as_deref() == Some(machine_name.as_str())
-                    && pub_key_der_obj == parsed_cert.public_key_data().as_ref()
-                {
+                // The key from the P12 must have a live certificate on this
+                // team; its machine name is irrelevant for that.
+                let parsed_cert = match X509Certificate::from_der(cert_content) {
+                    Ok(parsed_cert) => parsed_cert,
+                    Err(e) => {
+                        log::debug!("Ignoring certificate {}: {}", cert.serial_number, e);
+                        continue;
+                    }
+                };
+                if pub_key_der_obj == parsed_cert.public_key_data().as_ref() {
                     // Convert DER to PEM
                     let key_pem =
                         pem_rfc7468::encode_string("PRIVATE KEY", LineEnding::LF, &key_der)

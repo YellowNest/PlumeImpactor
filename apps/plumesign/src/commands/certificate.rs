@@ -122,7 +122,6 @@ async fn list(args: ListArgs) -> Result<()> {
 
     let inuse_cert = CertificateIdentity::find_active_certificate(
         get_data_path(),
-        None,
         &team_id,
         &certificates,
     )
@@ -204,9 +203,13 @@ async fn export(args: ExportArgs) -> Result<()> {
 
     let config_path = get_data_path();
 
-    let p12_data =
-        CertificateIdentity::export_pkcs12(&session, config_path, None, &team_id, &args.password)
-            .await?;
+    let p12_data = CertificateIdentity::export_pkcs12(
+        &session,
+        config_path,
+        &team_id,
+        &args.password,
+    )
+    .await?;
 
     std::fs::write(&args.output, p12_data)?;
     log::info!("Successfully exported P12 certificate to {:?}", args.output);
@@ -229,7 +232,6 @@ async fn import(args: ImportArgs) -> Result<()> {
     CertificateIdentity::import_pkcs12(
         &session,
         config_path,
-        None,
         &team_id,
         &p12_data,
         &args.password,
