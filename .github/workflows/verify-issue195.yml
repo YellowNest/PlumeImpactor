@@ -1,0 +1,21 @@
+name: Verify issue 195
+
+on:
+  push:
+    branches:
+      - verify/issue-195-existing-certificates
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format
+        run: cargo fmt --all -- --check
+      - name: Issue 195 regressions
+        run: cargo test -p plume_core issue_195_pkcs12_tests -- --nocapture
+      - name: Full plume_core tests
+        run: cargo test -p plume_core
