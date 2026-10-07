@@ -816,11 +816,7 @@ mod issue_195_pkcs12_tests {
         let key_der = key.to_pkcs8_der().unwrap().as_bytes().to_vec();
         let cert = p12_keystore::Certificate::from_der(&certificate_der(&key)).unwrap();
 
-        let chain = p12_keystore::PrivateKeyChain::new(
-            key_der.clone(),
-            [1, 2, 3, 4],
-            vec![cert],
-        );
+        let chain = p12_keystore::PrivateKeyChain::new(key_der.clone(), [1, 2, 3, 4], vec![cert]);
         let mut keystore = p12_keystore::KeyStore::new();
         keystore.add_entry(
             "linked",
