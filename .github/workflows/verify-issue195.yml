@@ -19,3 +19,5 @@ jobs:
         run: cargo test -p plume_core issue_195_pkcs12_tests -- --nocapture
       - name: Full plume_core tests
         run: cargo test -p plume_core
+      - name: Check plumesign integration
+        run: cargo check -p plumesign
