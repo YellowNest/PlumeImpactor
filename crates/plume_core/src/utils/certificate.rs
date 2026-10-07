@@ -729,6 +729,22 @@ mod issue_195_pkcs12_tests {
         }
     }
 
+    fn certificate_der(key: &RsaPrivateKey) -> Vec<u8> {
+        let key_der = key.to_pkcs8_der().unwrap();
+        let key_pair = KeyPair::from_der(key_der.as_bytes()).unwrap();
+
+        let mut params = rcgen::CertificateParams::new(vec![]);
+        params.alg = &PKCS_RSA_SHA256;
+        params.key_pair = Some(key_pair);
+        params.not_before = rcgen::date_time_ymd(2025, 1, 1);
+        params.not_after = rcgen::date_time_ymd(2035, 1, 1);
+
+        rcgen::Certificate::from_params(params)
+            .unwrap()
+            .serialize_der()
+            .unwrap()
+    }
+
     fn sidestore_style_p12(key: &RsaPrivateKey) -> Vec<u8> {
         let key_bag_oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.1");
         let cert_bag_oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.12.10.1.3");
@@ -742,16 +758,7 @@ mod issue_195_pkcs12_tests {
         };
         let key_safe: SafeContents = vec![key_bag];
 
-        let key_pair = KeyPair::from_der(&key_der).unwrap();
-        let mut params = rcgen::CertificateParams::new(vec![]);
-        params.alg = &PKCS_RSA_SHA256;
-        params.key_pair = Some(key_pair);
-        params.not_before = rcgen::date_time_ymd(2025, 1, 1);
-        params.not_after = rcgen::date_time_ymd(2035, 1, 1);
-        let cert_der = rcgen::Certificate::from_params(params)
-            .unwrap()
-            .serialize_der()
-            .unwrap();
+        let cert_der = certificate_der(key);
 
         let cert_bag_value = CertBag {
             cert_id: x509_cert_oid,
@@ -800,6 +807,34 @@ mod issue_195_pkcs12_tests {
             extracted,
             key.to_pkcs8_der().unwrap().as_bytes(),
             "fallback must recover the exact PKCS#8 private key"
+        );
+    }
+
+    #[test]
+    fn issue_195_existing_linked_p12_path_still_works() {
+        let key = RsaPrivateKey::new(&mut OsRng, 2048).unwrap();
+        let key_der = key.to_pkcs8_der().unwrap().as_bytes().to_vec();
+        let cert = p12_keystore::Certificate::from_der(&certificate_der(&key)).unwrap();
+
+        let chain = p12_keystore::PrivateKeyChain::new(
+            key_der.clone(),
+            [1, 2, 3, 4],
+            vec![cert],
+        );
+        let mut keystore = p12_keystore::KeyStore::new();
+        keystore.add_entry(
+            "linked",
+            p12_keystore::KeyStoreEntry::PrivateKeyChain(chain),
+        );
+
+        let p12 = keystore.writer("secret").write().unwrap();
+
+        let extracted = CertificateIdentity::extract_pkcs12_private_key(&p12, "secret").unwrap();
+        assert_eq!(extracted, key_der);
+
+        assert!(
+            CertificateIdentity::extract_pkcs12_private_key(&p12, "wrong-password").is_err(),
+            "existing password validation must remain intact"
         );
     }
 
