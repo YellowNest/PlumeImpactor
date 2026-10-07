@@ -819,8 +819,6 @@ mod issue_195_pkcs12_tests {
 
     #[test]
     fn issue_195_certificate_only_p12_still_has_no_private_key() {
-        let data_oid = ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.1");
-
         let pfx = Pfx {
             version: Version::V3,
             auth_safe: data_content(Vec::<ContentInfo>::new().to_der().unwrap()),
@@ -835,6 +833,5 @@ mod issue_195_pkcs12_tests {
             "unexpected error: {err}"
         );
 
-        assert_eq!(data_oid.to_string(), "1.2.840.113549.1.7.1");
     }
 }
