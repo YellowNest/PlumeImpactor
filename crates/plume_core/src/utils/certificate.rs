@@ -393,7 +393,13 @@ impl CertificateIdentity {
                                         cert.machine_name.as_deref().unwrap_or("")
                                     );
                                 }
-                                return Err(Error::CertificateResetRequired(revocable));
+                                let err = Error::CertificateResetRequired(revocable);
+                                // Callers read the engine's log output, not
+                                // the process exit value: write the Display,
+                                // which carries the [certificate_reset_required]
+                                // marker, where they can see it.
+                                log::error!("{err}");
+                                return Err(err);
                             }
                         };
 
