@@ -1,4 +1,8 @@
 use std::sync::{Mutex, OnceLock, mpsc};
+use std::time::SystemTime;
+
+use plume_core::CertificateReset;
+use plume_core::developer::qh::certs::Cert;
 
 pub(crate) const WARNING: &str = "Impactor needs to reset your certificate. This breaks existing SideStore and AltStore installs.";
 
@@ -52,9 +56,30 @@ pub fn request_confirmation(message: &str) -> bool {
     response_rx.recv().unwrap_or(false)
 }
 
-pub fn confirm() -> bool {
-    log::warn!("{WARNING}");
-    request_confirmation(WARNING)
+pub fn confirm(certs: &[Cert]) -> CertificateReset {
+    // The user confirms with a single yes/no, so exactly one named
+    // certificate is offered: the one expiring first, which is the least
+    // disruptive to keep. Revoking anything else would be a decision the
+    // user never saw.
+    let Some(chosen) = certs
+        .iter()
+        .min_by_key(|c| SystemTime::from(c.expiration_date))
+    else {
+        log::error!("Certificate reset requested but no certificate is on the account");
+        return CertificateReset::NoAuthorization;
+    };
+
+    let message = format!(
+        "{WARNING}\n\nRevoking: `{}` (serial `{}`, expires {:?}).",
+        chosen.name, chosen.serial_number, chosen.expiration_date
+    );
+
+    log::warn!("{message}");
+    if request_confirmation(&message) {
+        CertificateReset::Revoke(chosen.serial_number.clone())
+    } else {
+        CertificateReset::Cancelled
+    }
 }
 
 pub fn wait_for_request() -> Option<ConfirmationRequest> {

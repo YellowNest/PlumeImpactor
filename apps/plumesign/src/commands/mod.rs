@@ -55,3 +55,27 @@ pub enum Commands {
     /// Take a screenshot from an iOS device over an RSD tunnel
     Screenshot(screenshot::ScreenshotArgs),
 }
+
+/// Builds the certificate-reset callback for one signing run.
+///
+/// `authorized` is the serial of the certificate the user agreed to revoke in
+/// order to free a slot when the account is at its certificate limit. The
+/// authorization is spent on first use: if more room turns out to be needed,
+/// the run stops instead of revoking a certificate nobody approved. Without it
+/// nothing is ever revoked and the caller receives CertificateResetRequired.
+pub(crate) fn certificate_reset_callback(
+    authorized: Option<String>,
+) -> impl FnMut(&[plume_core::developer::qh::certs::Cert]) -> plume_core::CertificateReset {
+    use plume_core::CertificateReset;
+    let mut authorized = authorized;
+    move |certs| {
+        let Some(serial) = authorized.take() else {
+            return CertificateReset::NoAuthorization;
+        };
+        if !certs.iter().any(|c| c.serial_number == serial) {
+            log::error!("Revoking certificate {serial} was not offered as a candidate");
+            return CertificateReset::NoAuthorization;
+        }
+        CertificateReset::Revoke(serial)
+    }
+}

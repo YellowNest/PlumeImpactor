@@ -22,6 +22,24 @@ use crate::{
 
 pub(crate) const MACHINE_NAME: &str = "AltStore";
 
+/// How many times a single run may ask to free a certificate slot before the
+/// request is considered stuck. One revocation normally makes room.
+const MAX_CERT_RESET_ATTEMPTS: u32 = 3;
+
+/// The answer when a run is told it must revoke a certificate to make room.
+/// The three outcomes need different errors: a refusal is final, while a
+/// missing authorization is something the caller can still supply.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CertificateReset {
+    /// Revoke exactly this certificate, then retry.
+    Revoke(String),
+    /// A person was asked and declined.
+    Cancelled,
+    /// Nothing authorizes a revocation: a headless run without approval, or
+    /// the one approved certificate has already been spent.
+    NoAuthorization,
+}
+
 pub struct CertificateIdentity {
     pub cert: Option<CapturedX509Certificate>,
     pub key: Option<Box<dyn PrivateKey>>,
@@ -59,7 +77,7 @@ impl CertificateIdentity {
         machine_name: Option<String>,
         team_id: &String,
         is_export: bool,
-        on_certificate_reset: Option<&mut dyn FnMut() -> bool>,
+        on_certificate_reset: Option<&mut dyn FnMut(&[Cert]) -> CertificateReset>,
     ) -> Result<Self, Error> {
         let machine_name = machine_name.unwrap_or_else(|| MACHINE_NAME.to_string());
 
@@ -85,10 +103,7 @@ impl CertificateIdentity {
             let key_string = fs::read_to_string(&key_path)?;
             let priv_key = RsaPrivateKey::from_pkcs8_pem(&key_string)?;
 
-            if let Some(certificate) = identity
-                .find_certificate(certs.clone(), &priv_key)
-                .await?
-            {
+            if let Some(certificate) = identity.find_certificate(certs.clone(), &priv_key).await? {
                 let cert_pem = encode_string(
                     "CERTIFICATE",
                     LineEnding::LF,
@@ -254,6 +269,9 @@ impl CertificateIdentity {
     /// tool that created the certificate (AltStore, SideStore, iLoader, ...) is
     /// deliberately ignored: private ownership of the key is the only real
     /// credential, so ignoring it lets one certificate be shared across tools.
+    ///
+    /// Expired certificates are not reusable, so they are skipped: the caller
+    /// then requests a new certificate instead of signing with a dead one.
     async fn find_certificate(
         &mut self,
         certs: Vec<Cert>,
@@ -273,6 +291,10 @@ impl CertificateIdentity {
                         continue;
                     }
                 };
+                if !parsed_cert.time_constraints_valid(None) {
+                    log::debug!("Ignoring expired certificate {}", cert.serial_number);
+                    continue;
+                }
                 if pub_key_der_obj == parsed_cert.public_key_data().as_ref() {
                     // We need to save the machine_id for our P12
                     if let Some(ref machine_id) = cert.machine_id {
@@ -295,7 +317,7 @@ impl CertificateIdentity {
         team_id: &String,
         machine_name: &String,
         certs: Vec<Cert>,
-        mut on_certificate_reset: Option<&mut dyn FnMut() -> bool>,
+        mut on_certificate_reset: Option<&mut dyn FnMut(&[Cert]) -> CertificateReset>,
     ) -> Result<(Cert, RsaPrivateKey), Error> {
         let priv_key = RsaPrivateKey::new(&mut OsRng, 2048)?;
         let priv_key_der = priv_key.to_pkcs8_der()?;
@@ -314,19 +336,27 @@ impl CertificateIdentity {
 
         let cert_csr = rcgen::Certificate::from_params(params)?.serialize_request_pem()?;
 
-        let cert_serial_numbers = certs
-            .iter()
-            .map(|c| c.serial_number.clone())
-            .collect::<Vec<_>>();
-        let mut warned_about_reset = false;
-
-        // When we submit a CSR theres a high chance of it failing, at least
-        // on free developer accounts, we put it in a loop so whenever it does
-        // fail, we also look through all of our existing certificates through
-        // the api until we have a success on a single revokage, then we can
-        // successfully submit our csr, but if we just cannot at all, return
-        // an error
+        // A CSR is rejected with result code 7460 when the account is already
+        // holding as many certificates as Apple allows; a slot has to be freed
+        // by revoking one first. Which certificate loses is the user's call,
+        // never ours:
+        // - every round asks the callback again, so no certificate is ever
+        //   revoked behind a confirmation that covered a different one;
+        // - only the serial the callback authorized is revoked; if that fails
+        //   the request aborts instead of falling back to another candidate.
+        // A run without an authorization stops with
+        // CertificateResetRequired so callers (atvloadly's install page) can
+        // present the candidates and retry with an explicit one.
+        let mut revocable = certs;
+        let mut attempts = 0u32;
         let cert_id = loop {
+            attempts += 1;
+            if attempts > MAX_CERT_RESET_ATTEMPTS {
+                return Err(Error::Certificate(format!(
+                    "Still at the certificate limit after {MAX_CERT_RESET_ATTEMPTS} revocations"
+                )));
+            }
+
             match session
                 .qh_submit_cert_csr(&team_id, cert_csr.clone(), machine_name)
                 .await
@@ -336,34 +366,50 @@ impl CertificateIdentity {
                     // 7460 is for too many certificates (I think)
                     if matches!(&e, Error::DeveloperApi { result_code, .. } if *result_code == 7460)
                     {
-                        if !warned_about_reset {
-                            if let Some(callback) = on_certificate_reset.as_deref_mut() {
-                                if !callback() {
-                                    return Err(Error::Certificate(
-                                        "Certificate reset cancelled".into(),
-                                    ));
+                        // A caller that can ask the user (a GUI) reports a
+                        // refusal as cancelled. A headless caller with no way
+                        // to ask reports the missing authorization together
+                        // with the candidates it was offered, so the caller
+                        // (atvloadly's install page) can present them and
+                        // retry with --revoke-certificate.
+                        let decision = match on_certificate_reset.as_deref_mut() {
+                            Some(cb) => cb(&revocable),
+                            None => CertificateReset::NoAuthorization,
+                        };
+                        let serial = match decision {
+                            CertificateReset::Revoke(serial) => serial,
+                            CertificateReset::Cancelled => {
+                                return Err(Error::Certificate(
+                                    "Certificate reset cancelled".into(),
+                                ));
+                            }
+                            CertificateReset::NoAuthorization => {
+                                for cert in &revocable {
+                                    log::info!(
+                                        "Certificate that could be revoked: `{}` (serial `{}`, expires {:?}, machine `{}`)",
+                                        cert.name,
+                                        cert.serial_number,
+                                        cert.expiration_date,
+                                        cert.machine_name.as_deref().unwrap_or("")
+                                    );
                                 }
+                                return Err(Error::CertificateResetRequired(revocable));
                             }
-                            warned_about_reset = true;
+                        };
+
+                        match session.qh_revoke_cert(&team_id, &serial).await {
+                            Ok(_) => log::warn!("Revoked certificate with serial number {serial}"),
+                            Err(revoke_err) => {
+                                return Err(Error::Certificate(format!(
+                                    "Failed to revoke certificate {serial}: {revoke_err}"
+                                )));
+                            }
                         }
 
-                        // Try to revoke certificates from the candidate list
-                        let mut revoked_any = false;
-                        for cid in &cert_serial_numbers {
-                            if session.qh_revoke_cert(&team_id, cid).await.is_ok() {
-                                log::warn!("Revoked certificate with serial number {}", cid);
-                                revoked_any = true;
-                                break;
-                            }
-                        }
-
-                        if revoked_any {
-                            continue;
-                        } else {
-                            return Err(Error::Certificate(
-                                "Too many certificates and failed to revoke any".into(),
-                            ));
-                        }
+                        // The certificate we were told to free is gone; do not
+                        // offer it (or anything already spent) again.
+                        revocable.retain(|c| c.serial_number != serial);
+                        continue;
                     }
 
                     return Err(e);
@@ -427,7 +473,10 @@ impl CertificateIdentity {
                 new: false,
             };
 
-            if let Some(_found_cert) = cert.find_certificate(certs.to_vec(), &priv_key).await.ok()?
+            if let Some(_found_cert) = cert
+                .find_certificate(certs.to_vec(), &priv_key)
+                .await
+                .ok()?
             {
                 return Some(cert);
             }
@@ -458,10 +507,7 @@ impl CertificateIdentity {
                 serial_number: None,
                 new: false,
             };
-            if let Some(cert) = cert
-                .find_certificate(certs.clone(), &priv_key)
-                .await?
-            {
+            if let Some(cert) = cert.find_certificate(certs.clone(), &priv_key).await? {
                 let cert_pem = encode_string(
                     "CERTIFICATE",
                     LineEnding::LF,
@@ -548,6 +594,7 @@ impl CertificateIdentity {
             .to_pkcs1_der()?
             .as_bytes()
             .to_vec();
+        let mut expired: Option<String> = None;
         for cert in certificates {
             if let Some(cert_content) = &cert.cert_content {
                 // The key from the P12 must have a live certificate on this
@@ -559,22 +606,37 @@ impl CertificateIdentity {
                         continue;
                     }
                 };
-                if pub_key_der_obj == parsed_cert.public_key_data().as_ref() {
-                    // Convert DER to PEM
-                    let key_pem =
-                        pem_rfc7468::encode_string("PRIVATE KEY", LineEnding::LF, &key_der)
-                            .map_err(|e| {
-                                Error::Certificate(format!("Failed to encode key as PEM: {:?}", e))
-                            })?;
-
-                    let key_path = Self::key_dir(config_path, team_id)?.join("key.pem");
-                    if let Some(parent) = key_path.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    fs::write(&key_path, key_pem)?;
-                    return Ok(());
+                if pub_key_der_obj != parsed_cert.public_key_data().as_ref() {
+                    continue;
                 }
+                if !parsed_cert.time_constraints_valid(None) {
+                    // Remember it so the failure can name the certificate:
+                    // storing this key would succeed and then never be found
+                    // again by find_certificate, which skips expired ones.
+                    expired = Some(cert.serial_number);
+                    continue;
+                }
+
+                // Convert DER to PEM
+                let key_pem = pem_rfc7468::encode_string("PRIVATE KEY", LineEnding::LF, &key_der)
+                    .map_err(|e| {
+                    Error::Certificate(format!("Failed to encode key as PEM: {:?}", e))
+                })?;
+
+                let key_path = Self::key_dir(config_path, team_id)?.join("key.pem");
+                if let Some(parent) = key_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(&key_path, key_pem)?;
+                return Ok(());
             }
+        }
+
+        if let Some(serial) = expired {
+            return Err(Error::Certificate(format!(
+                "The private key matches certificate {serial}, which has expired; \
+                 it cannot be imported for signing"
+            )));
         }
 
         Err(Error::Certificate(

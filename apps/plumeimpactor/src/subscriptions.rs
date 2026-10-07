@@ -331,9 +331,9 @@ pub(crate) async fn run_installation(
                 team_id
             };
 
-            let mut on_certificate_reset = || {
+            let mut on_certificate_reset = |certs: &[plume_core::developer::qh::certs::Cert]| {
                 send(crate::certificate_reset::WARNING.to_string(), 20);
-                crate::certificate_reset::confirm()
+                crate::certificate_reset::confirm(certs)
             };
             let identity = CertificateIdentity::new_with_session(
                 &session,

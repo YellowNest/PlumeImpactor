@@ -69,6 +69,12 @@ pub struct SignArgs {
     /// Refresh the app on the device
     #[arg(long)]
     pub refresh: bool,
+    /// Serial number of a certificate the user approved revoking when the
+    /// account is at its certificate limit. Without it nothing is revoked and
+    /// signing fails asking for that approval. The authorization is used at
+    /// most once and only if a slot actually has to be freed.
+    #[arg(long = "revoke-certificate", value_name = "SERIAL")]
+    pub revoke_certificate: Option<String>,
 }
 
 pub async fn execute(args: SignArgs) -> Result<()> {
@@ -115,13 +121,15 @@ pub async fn execute(args: SignArgs) -> Result<()> {
     } else if args.apple_id {
         let session = get_authenticated_account(args.username.clone()).await?;
         let team_id = teams(&session).await?;
+        let mut on_certificate_reset =
+            crate::commands::certificate_reset_callback(args.revoke_certificate);
         let cert_identity = CertificateIdentity::new_with_session(
             &session,
             get_data_path(),
             None,
             &team_id,
             false,
-            None,
+            Some(&mut on_certificate_reset),
         )
         .await?;
 

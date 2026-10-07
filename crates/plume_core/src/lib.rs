@@ -6,9 +6,11 @@ pub use apple_codesign::{AppleCodesignError, SettingsScope, SigningSettings, Uni
 
 pub use omnisette::AnisetteConfiguration;
 
-pub use utils::{CertificateIdentity, MobileProvision};
+pub use utils::{CertificateIdentity, CertificateReset, MobileProvision};
 #[cfg(feature = "tweaks")]
 pub use utils::{MachO, MachOExt};
+
+use crate::developer::qh::certs::Cert;
 
 use thiserror::Error as ThisError;
 #[derive(Debug, ThisError)]
@@ -21,6 +23,11 @@ pub enum Error {
     CertificatePemMissing,
     #[error("Certificate error: {0}")]
     Certificate(String),
+    #[error(
+        "The certificate limit of this account is reached and revoking a certificate was not \
+         authorized. Ask the user which certificate to revoke, then retry with that authorization."
+    )]
+    CertificateResetRequired(Vec<Cert>),
     #[error("Developer API error {result_code} (HTTP {http_code:?}): {message} [URL: {url}]")]
     DeveloperApi {
         url: String,
