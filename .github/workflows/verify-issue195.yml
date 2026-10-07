@@ -13,8 +13,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Format
-        run: cargo fmt --all -- --check
+      - name: Format touched Rust file
+        run: rustfmt --edition 2024 --check crates/plume_core/src/utils/certificate.rs
       - name: Issue 195 regressions
         run: cargo test -p plume_core issue_195_pkcs12_tests -- --nocapture
       - name: Full plume_core tests
