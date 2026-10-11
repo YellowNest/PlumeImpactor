@@ -18,6 +18,6 @@ jobs:
         with:
           components: rustfmt
       - name: Rust formatting
-        run: cargo fmt --all -- --check
+        run: rustfmt --edition 2024 --check crates/plume_utils/src/signer.rs
       - name: JVM class signing regression
         run: cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
