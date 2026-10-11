@@ -1,0 +1,23 @@
+name: Java class signing regression
+
+on:
+  push:
+    branches:
+      - test/java-class-regression-211
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Rust formatting
+        run: cargo fmt --all -- --check
+      - name: JVM class signing regression
+        run: cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
