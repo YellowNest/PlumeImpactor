@@ -474,6 +474,68 @@ impl Signer {
         settings.set_for_notarization(false);
         settings.set_shallow(true);
 
+        // JVM .class files have the same CAFEBABE magic as universal Mach-O
+        // binaries. Keep bytecode in the bundle's resource seal instead of
+        // attempting to sign it as native code (atvloadly#211).
+        settings.add_path_exclusion("**/*.class")?;
+
         Ok(settings)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{fs, path::PathBuf};
+
+    struct TempBundle(PathBuf);
+
+    impl Drop for TempBundle {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn java_class_resource_is_sealed_without_macho_signing() -> Result<(), Error> {
+        let bundle_path = std::env::temp_dir().join(format!(
+            "plume-java-resource-{}.bundle",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&bundle_path)?;
+        let _cleanup = TempBundle(bundle_path.clone());
+
+        fs::write(
+            bundle_path.join("Info.plist"),
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.example.resource</string>
+<key>CFBundlePackageType</key><string>BNDL</string>
+<key>CFBundleName</key><string>JavaResource</string>
+<key>CFBundleVersion</key><string>1</string>
+</dict></plist>"#,
+        )?;
+
+        let java_path = bundle_path.join(
+            "lib/modules/java.base/apple/security/AppleProvider$ProviderService.class",
+        );
+        fs::create_dir_all(java_path.parent().expect("class file has a parent"))?;
+        // Java 17: CAFEBABE, minor version 0, major version 61.
+        let bytecode = b"\xca\xfe\xba\xbe\x00\x00\x00\x3d\x00\x01";
+        fs::write(&java_path, bytecode)?;
+
+        let settings = Signer::build_base_settings(None)?;
+        assert!(settings.path_exclusion_pattern_matches(
+            "lib/modules/java.base/apple/security/AppleProvider$ProviderService.class"
+        ));
+        assert!(!settings.path_exclusion_pattern_matches("Frameworks/Native.dylib"));
+
+        UnifiedSigner::new(settings).sign_path_in_place(&bundle_path)?;
+
+        assert_eq!(fs::read(&java_path)?, bytecode);
+        assert!(bundle_path.join("_CodeSignature/CodeResources").is_file());
+
+        Ok(())
     }
 }
