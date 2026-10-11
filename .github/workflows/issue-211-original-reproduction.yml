@@ -1,0 +1,35 @@
+name: Original issue 211 signing reproduction
+on:
+  push:
+    branches:
+      - test/issue-211-original-reproduction
+
+permissions:
+  contents: read
+
+jobs:
+  original-bug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Confirm original apple-codesign dependency
+        run: |
+          grep -F 'git = "https://github.com/bitxeno/apple-platform-rs", branch = "macho"' crates/plume_core/Cargo.toml
+      - name: Prove original signer fails on CAFEBABE Java bytecode
+        shell: bash
+        run: |
+          set -uo pipefail
+          cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture 2>&1 | tee /tmp/issue-211-reproduction.log
+          rc=${PIPESTATUS[0]}
+          if [[ "$rc" -eq 0 ]]; then
+            echo "Unexpected pass: baseline did not reproduce the issue"
+            exit 1
+          fi
+          if grep -E 'Malformed entity|binary parsing error|invalid .*FatArch' /tmp/issue-211-reproduction.log >/dev/null; then
+            echo "EXPECTED FAILURE CONFIRMED: unpatched signer attempts Mach-O parsing on Java bytecode."
+          else
+            echo "Failure did not match the expected signing error"
+            exit 1
+          fi
