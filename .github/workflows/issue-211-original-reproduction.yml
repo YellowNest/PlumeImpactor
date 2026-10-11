@@ -27,7 +27,7 @@ jobs:
             echo "Unexpected pass: baseline did not reproduce the issue"
             exit 1
           fi
-          if grep -E 'Malformed entity|binary parsing error|invalid .*FatArch' /tmp/issue-211-reproduction.log >/dev/null; then
+          if grep -F 'Error: Codesign(Goblin(BufferTooShort(61, "arches")))' /tmp/issue-211-reproduction.log >/dev/null; then
             echo "EXPECTED FAILURE CONFIRMED: unpatched signer attempts Mach-O parsing on Java bytecode."
           else
             echo "Failure did not match the expected signing error"
