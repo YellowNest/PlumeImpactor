@@ -22,10 +22,10 @@ jobs:
       - name: Confirm corrected library revision
         run: |
           grep -F '7e98a5e5b37c10783bcbee460eb742273d6d4dd5' crates/plume_core/Cargo.toml
-          cargo tree --prefix none -p plume_core -i apple-codesign
+          cargo tree --locked --prefix none -p plume_core -i apple-codesign
       - name: Verify real bundle signing with Java bytecode
-        run: cargo test -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
+        run: cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
       - name: Build plumesign command-line binary
-        run: cargo build -p plumesign
+        run: cargo build --locked -p plumesign
       - name: Run plume_utils library tests
-        run: cargo test -p plume_utils --lib
+        run: cargo test --locked -p plume_utils --lib
