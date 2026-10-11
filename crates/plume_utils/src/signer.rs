@@ -517,9 +517,8 @@ mod tests {
 </dict></plist>"#,
         )?;
 
-        let java_path = bundle_path.join(
-            "lib/modules/java.base/apple/security/AppleProvider$ProviderService.class",
-        );
+        let java_path = bundle_path
+            .join("lib/modules/java.base/apple/security/AppleProvider$ProviderService.class");
         fs::create_dir_all(java_path.parent().expect("class file has a parent"))?;
         // Java 17: CAFEBABE, minor version 0, major version 61.
         let bytecode = b"\xca\xfe\xba\xbe\x00\x00\x00\x3d\x00\x01";
