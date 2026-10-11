@@ -1,0 +1,23 @@
+name: Java bytecode sign regression (released signer)
+
+on:
+  push:
+    branches:
+      - test/released-signer-java-class-211
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Verify fixture formatting
+        run: rustfmt --edition 2024 --check crates/plume_utils/src/signer.rs
+      - name: Regression against released dependency graph
+        run: cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
