@@ -1,0 +1,31 @@
+name: Verify issue 211 signer integration
+
+on:
+  push:
+    branches:
+      - test/issue-211-signing-integration
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Format regression fixture
+        run: rustfmt --edition 2024 --check crates/plume_utils/src/signer.rs
+      - name: Confirm corrected library revision
+        run: |
+          grep -F '7e98a5e5b37c10783bcbee460eb742273d6d4dd5' crates/plume_core/Cargo.toml
+          cargo tree --prefix none -p plume_core -i apple-codesign
+      - name: Verify real bundle signing with Java bytecode
+        run: cargo test -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture
+      - name: Build plumesign command-line binary
+        run: cargo build -p plumesign
+      - name: Run plume_utils library tests
+        run: cargo test -p plume_utils --lib

@@ -45,7 +45,7 @@ rcgen = "0.12"
 sha1 = "0.10"             # p12
 p12-keystore = "0.2"      # p12 crate only supports legacy PKCS#12
 # Forks
-apple-codesign = { git = "https://github.com/bitxeno/apple-platform-rs", branch = "macho", package = "apple-codesign", default-features = false }
+apple-codesign = { git = "https://github.com/YellowNest/apple-platform-rs", rev = "7e98a5e5b37c10783bcbee460eb742273d6d4dd5", package = "apple-codesign", default-features = false }
 omnisette = { path = "../../3rdparty/omnisette", features = [
     "remote-anisette-v3",
 ] }
