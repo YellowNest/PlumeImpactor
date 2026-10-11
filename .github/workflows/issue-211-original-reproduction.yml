@@ -21,9 +21,9 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture 2>&1 | tee /tmp/issue-211-reproduction.log
-          rc=${PIPESTATUS[0]}
-          if [[ "$rc" -eq 0 ]]; then
+          # A failing test is the expected result here. Keep it inside
+          # the conditional so the runner's bash -e does not exit early.
+          if cargo test --locked -p plume_utils --lib signer::tests::java_class_resource_is_sealed_without_macho_signing -- --nocapture 2>&1 | tee /tmp/issue-211-reproduction.log; then
             echo "Unexpected pass: baseline did not reproduce the issue"
             exit 1
           fi
